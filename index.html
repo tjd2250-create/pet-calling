@@ -81,7 +81,6 @@ const dlBtn = document.getElementById('dlBtn');
 const cvs = document.getElementById('cvs');
 const ctx = cvs.getContext('2d');
 const thumbCvs = document.getElementById('thumbCvs');
-const thumbCtx = thumbCvs.getContext('2d');
 const resultImg = document.getElementById('resultImg');
 const resultSection = document.getElementById('resultSection');
 const zoneText = document.getElementById('zoneText');
@@ -90,9 +89,8 @@ const generating = document.getElementById('generating');
 const pwInput = document.getElementById('pwInput');
 
 cvs.width = W; cvs.height = H;
-// 메일용 썸네일 캔버스: 200x433 (비율 유지, 50KB 이하)
-const TW = 200, TH = 433;
-thumbCvs.width = TW; thumbCvs.height = TH;
+// 썸네일 캔버스: 50kb 이하로 줄이기 위해 220x477
+thumbCvs.width = 220; thumbCvs.height = 477;
 
 let petImg = null;
 
@@ -111,24 +109,6 @@ uiRaw.onload = () => {
   }
   uctx.putImageData(id, 0, 0);
   uiCanvas = uc;
-};
-
-// UI 썸네일 캔버스 (메일용)
-const uiThumbRaw = new Image();
-uiThumbRaw.src = UI_B64;
-let uiThumbCanvas = null;
-uiThumbRaw.onload = () => {
-  const uc = document.createElement('canvas');
-  uc.width = TW; uc.height = TH;
-  const uctx = uc.getContext('2d');
-  uctx.drawImage(uiThumbRaw, 0, 0, TW, TH);
-  const id = uctx.getImageData(0, 0, TW, TH);
-  const d = id.data;
-  for (let i = 0; i < d.length; i += 4) {
-    if (d[i]+d[i+1]+d[i+2] < 30) d[i+3] = 0;
-  }
-  uctx.putImageData(id, 0, 0);
-  uiThumbCanvas = uc;
 };
 
 function checkReady() {
@@ -166,39 +146,42 @@ pwInput.addEventListener('keydown', e => {
   }
 });
 
-function drawScreen(c, ct, w, h, nameY, avatarCyRatio, avatarR, uiCvs) {
-  const name = nameInput.value.trim();
-  ct.clearRect(0, 0, w, h);
-  ct.fillStyle = '#232223';
-  ct.fillRect(0, 0, w, h);
+function drawScene(targetCvs) {
+  const tw = targetCvs.width, th = targetCvs.height;
+  const tctx = targetCvs.getContext('2d');
+  const scaleX = tw / W, scaleY = th / H;
 
-  const sc = Math.max(w/petImg.width, h/petImg.height);
+  tctx.clearRect(0, 0, tw, th);
+  tctx.fillStyle = '#232223';
+  tctx.fillRect(0, 0, tw, th);
+
+  const sc = Math.max(tw/petImg.width, th/petImg.height);
   const bw = petImg.width*sc, bh = petImg.height*sc;
-  ct.save();
-  ct.filter = 'blur(' + Math.round(40*w/W) + 'px)';
-  ct.globalAlpha = 0.10;
-  ct.drawImage(petImg, (w-bw)/2, (h-bh)/2, bw, bh);
-  ct.restore();
+  tctx.save();
+  tctx.filter = 'blur(' + Math.round(40*scaleX) + 'px)';
+  tctx.globalAlpha = 0.10;
+  tctx.drawImage(petImg, (tw-bw)/2, (th-bh)/2, bw, bh);
+  tctx.restore();
 
-  const r = avatarR;
-  const cx2 = w/2, cy2 = h*avatarCyRatio;
-  ct.save();
-  ct.beginPath();
-  ct.arc(cx2, cy2, r, 0, Math.PI*2);
-  ct.clip();
+  const r = Math.round(AVATAR_R * scaleX);
+  const cx2 = tw/2, cy2 = th * AVATAR_CY_RATIO;
+  tctx.save();
+  tctx.beginPath();
+  tctx.arc(cx2, cy2, r, 0, Math.PI*2);
+  tctx.clip();
   const as = Math.max(r*2/petImg.width, r*2/petImg.height);
-  ct.drawImage(petImg, cx2-petImg.width*as/2, cy2-petImg.height*as/2, petImg.width*as, petImg.height*as);
-  ct.restore();
-  ct.strokeStyle = 'rgba(255,255,255,0.25)';
-  ct.lineWidth = Math.max(2, 5*w/W);
-  ct.beginPath(); ct.arc(cx2, cy2, r, 0, Math.PI*2); ct.stroke();
+  tctx.drawImage(petImg, cx2-petImg.width*as/2, cy2-petImg.height*as/2, petImg.width*as, petImg.height*as);
+  tctx.restore();
+  tctx.strokeStyle = 'rgba(255,255,255,0.25)';
+  tctx.lineWidth = Math.round(5*scaleX);
+  tctx.beginPath(); tctx.arc(cx2, cy2, r, 0, Math.PI*2); tctx.stroke();
 
-  ct.drawImage(uiCvs, 0, 0, w, h);
+  if (uiCanvas) tctx.drawImage(uiCanvas, 0, 0, tw, th);
 
-  ct.fillStyle = '#ffffff';
-  ct.textAlign = 'center';
-  ct.font = '300 ' + Math.round(130*w/W) + 'px -apple-system,"Helvetica Neue",sans-serif';
-  ct.fillText(name, w/2, nameY);
+  tctx.fillStyle = '#ffffff';
+  tctx.textAlign = 'center';
+  tctx.font = '300 ' + Math.round(130*scaleX) + 'px -apple-system,"Helvetica Neue",sans-serif';
+  tctx.fillText(nameInput.value.trim(), tw/2, Math.round(NAME_Y*scaleY));
 }
 
 genBtn.addEventListener('click', () => {
@@ -209,16 +192,21 @@ genBtn.addEventListener('click', () => {
   resultSection.classList.remove('show');
 
   setTimeout(async () => {
-    // 풀해상도 (다운로드용)
-    drawScreen(cvs, ctx, W, H, NAME_Y, AVATAR_CY_RATIO, AVATAR_R, uiCanvas);
-    const fullUrl = cvs.toDataURL('image/png');
+    // 풀사이즈 그리기
+    drawScene(cvs);
+    const fullUrl = cvs.toDataURL('image/jpeg', 0.92);
 
-    // 썸네일 (메일용) - JPEG 품질 70
-    const thumbNameY = Math.round(NAME_Y * TW/W);
-    const thumbR = Math.round(AVATAR_R * TW/W);
-    drawScreen(thumbCvs, thumbCtx, TW, TH, thumbNameY, AVATAR_CY_RATIO, thumbR, uiThumbCanvas || uiCanvas);
-    const thumbUrl = thumbCvs.toDataURL('image/jpeg', 0.70);
-    console.log('thumb size:', Math.round(thumbUrl.length/1024) + 'KB');
+    // 썸네일 그리기 (이메일용)
+    drawScene(thumbCvs);
+    // 용량 줄이기: jpeg quality 0.6
+    let thumbUrl = thumbCvs.toDataURL('image/jpeg', 0.6);
+    // base64 크기 확인 후 더 줄이기
+    while (thumbUrl.length > 48000) {
+      thumbCvs.width = Math.round(thumbCvs.width * 0.85);
+      thumbCvs.height = Math.round(thumbCvs.height * 0.85);
+      drawScene(thumbCvs);
+      thumbUrl = thumbCvs.toDataURL('image/jpeg', 0.55);
+    }
 
     resultImg.src = fullUrl;
     resultSection.classList.add('show');
@@ -227,7 +215,7 @@ genBtn.addEventListener('click', () => {
 
     dlBtn.onclick = () => {
       const a = document.createElement('a');
-      a.href = fullUrl; a.download = name+'_calling.png'; a.click();
+      a.href = fullUrl; a.download = name+'_calling.jpg'; a.click();
     };
 
     const time = new Date().toLocaleString('ko-KR');
@@ -239,7 +227,7 @@ genBtn.addEventListener('click', () => {
       });
       console.log('메일 전송 성공');
     } catch(e) {
-      console.log('email error:', e);
+      console.log('email error', e);
     }
   }, 100);
 });
